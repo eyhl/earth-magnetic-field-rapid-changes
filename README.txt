@@ -19,6 +19,7 @@ List of functions in "functions.py":
 	L_curve_plot()
 	L_curve_corner()
 	L_curve_geometrical_corner()
+	power_spectrum()
 	time_dep_synth_grid()
 	time_dep_global_field_plot()
 	design_SHA_GP()
