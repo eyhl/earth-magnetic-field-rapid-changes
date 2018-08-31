@@ -42,7 +42,9 @@ epochs = [3, 7, 11]
 tq = np.arange(start=2004, stop=2019)
 
 # loads the r-component of the field, and indicdes for the chosen VO's
-[Br, theta, phi, r, indices] = ft.load_epochs_r(files=files, year=2017, epoch=3)
+[theta, phi, indices] = ft.get_vo_indices(files=files, year=2017, epoch=3, vo_coordinates=[(48.17388, 8.7721),
+                                                                                           (143.524, 86.00912),
+                                                                                           (95.96354000000001, 123.77911)])
 
 # creates a list identical design matrices, and quantifies the times of data (epochs per year):
 [Gs, Grs_cmb, tps, Bs] = ft.design_SHA_per_epoch(data_paths=files, year_list=tp, epochs=epochs, degree=degree)
@@ -112,7 +114,7 @@ for i in range(len(indices)):
              + str(np.round(phi[indices[i][0]] * deg, 3)) + ')'
     axs[i].set_title(string, fontsize=12)
 
-plt.savefig('Br_three_VOs.png')
+# plt.savefig('Br_three_VOs.png')
 plt.show()
 
 # ------------------------------------------------- SV -------------------------------------------------------
@@ -126,7 +128,7 @@ list_of_ranges = [[-75, 50], [-50, 75], [25, -100]]
 axs = axs.ravel()
 for i in range(len(indices)):
     # loads a single VO
-    [Br, Bt, Bp, times, sv, sv_time] = ft.load_single_VO(files=files, Bi='Br',
+    [Br, Bt, Bp, times, sv, sv_time] = ft.load_single_vo(files=files, Bi='Br',
                                                          theta=theta[indices[i][0]] * deg, phi=phi[indices[i][0]] * deg)
 
     Br_synth_tmp = Br_synth[indices[i][0]::894]
@@ -165,6 +167,6 @@ for i in range(len(indices)):
              + str(np.round(phi[indices[i][0]] * deg, 3)) + ')'
     axs[i].set_title(string, fontsize=12, fontweight='bold')
 
-plt.savefig('SV_three_VOs.png')
+# plt.savefig('SV_three_VOs.png')
 plt.show()
 
