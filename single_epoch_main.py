@@ -20,10 +20,10 @@ paths = ['data/VO_SWARM_MF_0101.txt',
 [year, epoch] = [2017, 7]
 
 # spherical harmonic degree:
-degree = 13
+degree = 20
 
 # regularisation method, choose between 'L1' or 'L2' anything else will yield no regularisation:
-reg_method = 'L2'
+reg_method = 'L1'
 
 # number of alphas to be evaluated and the limits given as 10^limit:
 if reg_method == 'L1':
@@ -69,8 +69,8 @@ r_input = r_core
 file = []
 for path in paths:
     file.append(path)
-[Br, Bt, Bp, theta, phi, r] = ft.load_single_epoch(files=file, year=year, epoch=epoch)
-print(len(Br))
+[Br, Bt, Bp, theta, phi, r, errors] = ft.load_single_epoch(files=file, year=year, epoch=epoch, errors_path=None)
+
 # PRE-MODELLING
 # compute design matrix at core mantle boundary
 [Gr_cmb, Gt_cmb, Gp_cmb] = ft.compute_G_cmb(stepsize, degree)
@@ -128,7 +128,8 @@ elif reg_method == 'L2':
         print('final alpha ', best_alpha)
 
 else:
-    [model_final, residuals, misfit_norm, model_norm] = ft.global_field_model(Bi=Bi, Gi=Gi, L=Gr_cmb, degree=degree)
+    [model_final, residuals, misfit_norm, model_norm] = ft.global_field_model(Bi=Bi, Gi=Gi, L=Gr_cmb, degree=degree,
+                                                                              errors=False)
 
     if printmodel:
         print('final model ', model_final[0:5])
@@ -143,8 +144,8 @@ if reg_method == 'L1' or reg_method == 'L2':
         ft.errors_plot(residuals=residuals, choice=[False, True], latitude=theta)
     if global_field_map:
         string = reg_method + '-norm'
-        ft.global_field_plot(model_final, model_name=string, radius=r_input, cmap=map_color, save=save,
-                             vmin=vmin, vmax=vmax)
+        ft.global_field_plot(model_final, model_name=string, radius=r_input, save=save, vmin=vmin, vmax=vmax,
+                             cmap=map_color)
 
 else:
     if error_hist:
@@ -153,6 +154,6 @@ else:
         ft.errors_plot(residuals=residuals, choice=[False, True], latitude=theta)
     if global_field_map:
         string = 'Non-regularised'
-        ft.global_field_plot(model_final, model_name=string, radius=r_input, cmap='PuOr_r', save=save,
-                             vmin=vmin, vmax=vmax)
+        ft.global_field_plot(model_final, model_name=string, radius=r_input, save=save, vmin=vmin, vmax=vmax,
+                             cmap='PuOr_r')
 

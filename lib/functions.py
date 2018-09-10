@@ -13,22 +13,35 @@ import matplotlib.colors as colors
 from scipy.stats import norm
 import matplotlib.mlab as mlab
 import matplotlib.ticker as ticker
+pd.options.mode.chained_assignment = None  # default='warn'
 
 
-# ------------------------------------------------------ LOADING -----------------------------------------------------
-def load_single_epoch(files, year, epoch, header_size=4, NaN_marker=99999.):
+# ------------------------------------------------------ LOADING ------------------------------------------------------
+def load_single_epoch(files, year, epoch, errors_path=None, header_size=4, NaN_marker=99999.):
     '''
     This functions loads in data from the global magnetic field for a chosen year and epoch (3,7,11).
     Data points should have following units:
-    theta, phi - in degrees
-    r          - in km
-    Br, Bt, Bp - in nT
+    theta, phi - in degrees; r - in km; Br, Bt, Bp - in nT.
+
+    Input:
+    files         - the data files
+    year          - chosen year, available: [2000 - 2010], [2013-2017]
+    epoch         - chosen epoch, available: [3, 7, 11]
+    add_errors    - defaulted False. Inpute data path point to error covariance matrix. Here only variance is assumed so
+                         it is only the diagonal that is used.
+    header_size   - defaulted to 4 for this project
+    NaN_marker    - defaulted to 99999 in this project
+
+    Output:
+    Br, Bt, Bp    - field components, in nT
+    theta, phi, r - spherical coordinates in radians, radians, km.
+    errors        - list containing three vectors, holding the errors for Br, Bt and Bp respectively.
+
 
     The delimeter is defaulted to be whitespaces and the structure of the input file is assumed to be:
     [theta, phi, Year, Month, Time, r, Br, Bt, Bp, N_{data}]
     Values at the poles (theta = 0 and 180) are assumed erroneous and their rows are removed.
     NaN marker is set to default as 99999, and all rows including NaNs are removed.
-    note: theta and phi is returned in radians, no other unit conversion is done.
 
     :return: Br, Bt, Bp, theta, phi, r
     '''
@@ -57,6 +70,23 @@ def load_single_epoch(files, year, epoch, header_size=4, NaN_marker=99999.):
     data_time = data.query(year)
     data_time = data_time.query(epoch)
 
+    if errors_path is None:
+        # empty errors object
+        errors = None
+    else:
+        # Read in uncertainty estimates, corresponding to chosen year
+        errors = pd.read_table(errors_path, header=None)
+
+        # Extract diagonal (length 900, corresponding to 300 VOs in r, theta, phi)
+        err_r = np.diag(errors)[0:300]
+        err_t = np.diag(errors)[300:600]
+        err_p = np.diag(errors)[600:900]
+
+        # Add errors to existing data frame
+        data_time.loc[:, 'err_r'] = err_r
+        data_time.loc[:, 'err_t'] = err_t
+        data_time.loc[:, 'err_p'] = err_p
+
     # removes pole data points, and NaNs
     data_time = data_time[data_time['theta'] != 0]  # drop rows with theta=0
     data_time = data_time[data_time['theta'] != 180]  # drop rows with theta=180
@@ -70,10 +100,12 @@ def load_single_epoch(files, year, epoch, header_size=4, NaN_marker=99999.):
     theta = data_time['theta'].values * rad  # convert to radians
     phi = data_time['phi'].values * rad
     r = data_time['r'].values
+    if errors is not None:
+        errors = [data_time['err_r'].values, data_time['err_t'].values, data_time['err_p'].values]
 
-    return Br, Bt, Bp, theta, phi, r
+    return Br, Bt, Bp, theta, phi, r, errors
 
-# TODO i følgende test nogen linjer.
+
 def load_single_vo(files, Bi, theta, phi, header_size=4, NaN_marker=99999.):
     '''
     This functions loads in data for a single Virtual Observatory (VO), and computes the Secular Variation for as many
@@ -208,8 +240,8 @@ def get_vo_indices(files, year, epoch, vo_coordinates, truncation=None, header_s
 
     Input parameters:
     files          - list of data files
-    year           - chosen year of data, this year has to exist in one of the files
-    epoch          - chosen epoch of data, this epoch has to exist in one of the files
+    year           - chosen year of data, available: [2000 - 2010], [2013-2017]
+    epoch          - chosen epoch of data, available: [3, 7, 11]
     vo_coordinates - list of tuples containing coordinates for the wanted VO(s). e.g. [(75, 10), (180, 0)]
     truncation     - set to a number in order to truncate the data, e.g. 1 in order to only look at the first data point.
     header_size    - number of header rows in the data files
@@ -281,11 +313,11 @@ def get_vo_indices(files, year, epoch, vo_coordinates, truncation=None, header_s
     return theta, phi, indices
 
 
-# ------------------------------------------------------ SPATIAL -----------------------------------------------------
-def global_field_model(Bi, Gi, L, degree, regularise='', alpha=1e-8, gamma=1, eps=1e-4):
+# ---------------------------------------------------- SINGLE EPOCH ---------------------------------------------------
+def global_field_model(Bi, Gi, L, degree, errors=None, regularise='', alpha=1e-8, gamma=1, eps=1e-4):
     '''
     Computes global model of the geomagnetic field at the surface, given by least squares estimate:
-        model = inverse(G.T.dot(G)).G.T.dot(d)
+        model = G.T.dot(W.dot(G))^(-1).G.T.dot(W.dot(d))
     In the case of regularisation the model will be given by:
         L1: model = inverse(G.T.dot(G) + alpha**2 * L.T.dot(Wm).dot(L)) .dot (G.T.dot(d)), where Wm = diag(1/gamma)
         L2: model = inverse(G.T.dot(G) + alpha**2 * L.T.dot(L)) .dot (G.T.dot(d))
@@ -306,6 +338,7 @@ def global_field_model(Bi, Gi, L, degree, regularise='', alpha=1e-8, gamma=1, ep
 
     note: r, theta, phi has to be equal length
 
+    :param errors:
     :return: model, residuals, misfit_norm, model_norm
     '''
     N = len(Bi)
@@ -318,24 +351,39 @@ def global_field_model(Bi, Gi, L, degree, regularise='', alpha=1e-8, gamma=1, ep
     wm = np.ones(correct_size) * 1/np.sqrt(gamma ** 2 + eps ** 2)  # Ekblom's measure, avoid division by zero
 
     # right hand side (rhs) are similar in all cases
-    rhs = Gi.T.dot(Bi)
+    if errors is not None:
+        rhs = Gi.T.dot(np.diag(errors).dot(Bi))
+    else:
+        rhs = Gi.T.dot(Bi)
 
     if regularise == 'L1':
-        lhs = (Gi.T.dot(Gi) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))  # left hand side (lhs)
+        if errors is not None:
+            lhs = (Gi.T.dot(np.diag(errors).dot(Gi)) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))  # left hand side (lhs)
+        else:
+            lhs = (Gi.T.dot(Gi) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))  # left hand side (lhs)
+
         model = np.linalg.solve(lhs, rhs)
 
         # L1-norm defined as sum(abs(gamma[i])):
         model_norm = 1/N * np.sum(np.abs(gamma))
 
     elif regularise == 'L2':
-        lhs = (Gi.T.dot(Gi) + alpha**2 * L.T.dot(L))  # left hand side (lhs)
+        if errors is not None:
+            lhs = (Gi.T.dot(np.diag(errors).dot(Gi)) + alpha**2 * L.T.dot(L))  # left hand side (lhs)
+        else:
+            lhs = (Gi.T.dot(Gi) + alpha**2 * L.T.dot(L))  # left hand side (lhs)
+
         model = np.linalg.solve(lhs, rhs)
 
         # L2-norm defined as sum(L.dot(m)**2):
         model_norm = 1/N * np.sum(L.dot(model) ** 2)
 
     else:
-        lhs = Gi.T.dot(Gi)  # left hand side (lhs)
+        if errors is not None:
+            lhs = Gi.T.dot(np.diag(errors).dot(Gi))  # left hand side (lhs)
+        else:
+            lhs = Gi.T.dot(Gi)  # left hand side (lhs)
+
         model = np.linalg.solve(lhs, rhs)
         model_norm = 0
 
@@ -345,7 +393,7 @@ def global_field_model(Bi, Gi, L, degree, regularise='', alpha=1e-8, gamma=1, ep
     return model, residuals, misfit_norm, model_norm
 
 
-def L1_norm(Bi, Gi, L, degree, alpha_list, gamma=1, eps=1e-4, converged=0.001, printall=False):
+def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, converged=0.001, printall=False):
     '''
     This function computes L1-regularised models corresponding to a list of regularisation parameters (alphas). In this
     regard a weighting matrix is introduced.
@@ -372,6 +420,7 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, gamma=1, eps=1e-4, converged=0.001, p
     printall    - If true convergence status of every iteration is printed, if set to 'no' nothin is printed.
                   Default: prints current alpha and every tenth convergence status.
 
+    :param errors:
     :return: model_list, residuals_list, misfit_list, model_norm_list, gamma_list
     '''
     # for normalisation of model and misfit norm
@@ -398,7 +447,7 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, gamma=1, eps=1e-4, converged=0.001, p
         gamma = 1
 
         # initialise L1-regularised model in order to compute convergence condition in 1st while-loop:
-        [model_previous, dummy, dummy, dummy] = global_field_model(Bi=Bi, Gi=Gi, L=L, degree=degree,
+        [model_previous, dummy, dummy, dummy] = global_field_model(Bi=Bi, Gi=Gi, L=L, degree=degree, errors=None,
                                                                    regularise='L1', alpha=alpha, gamma=gamma)
         # set convergence arbitrarily higher than 0.001
         convergence = 1
@@ -412,8 +461,13 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, gamma=1, eps=1e-4, converged=0.001, p
             wm = np.ones(correct_size) * 1 / np.sqrt(gamma ** 2 + eps ** 2)
 
             # compute the model at current iteration
-            rhs = Gi.T.dot(Bi)
-            lhs = (Gi.T.dot(Gi) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))
+            if errors is not None:
+                rhs = Gi.T.dot(np.diag(errors).dot(Bi))
+                lhs = (Gi.T.dot(np.diag(errors).dot(Gi)) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))
+            else:
+                rhs = Gi.T.dot(Bi)
+                lhs = (Gi.T.dot(Gi) + alpha ** 2 * L.T.dot(np.diag(wm)).dot(L))
+
             model_current = np.linalg.solve(lhs, rhs)
 
             # compute convergence parameter
@@ -444,7 +498,7 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, gamma=1, eps=1e-4, converged=0.001, p
     return model_list, residuals_list, misfit_list, model_norm_list, gamma_list
 
 
-def L2_norm(Bi, Gi, L, alpha_list):
+def L2_norm(Bi, Gi, L, alpha_list, errors=None):
     '''
     This function computes L2-regularised models corresponding to a list of regularisation parameters (alphas)
     For L2 norm regularisation of a model the optimum model coefficients can be given by:
@@ -460,6 +514,7 @@ def L2_norm(Bi, Gi, L, alpha_list):
                   (not to be confused with the L in L_curve)
     alpha_list  - list of alphas to be used
 
+    :param errors:
     :return: model_list, residuals_list, misfit_list, model_norm_list
     '''
     # for normalisation of model and misfit norm
@@ -471,8 +526,13 @@ def L2_norm(Bi, Gi, L, alpha_list):
     residuals_list = []
 
     for alpha in alpha_list:
-        rhs = Gi.T.dot(Bi)
-        lhs = Gi.T.dot(Gi) + alpha**2 * L.T.dot(L)
+        if errors is not None:
+            rhs = Gi.T.dot(np.diag(errors).dot(Bi))
+            lhs = Gi.T.dot(np.diag(errors).dot(Gi)) + alpha**2 * L.T.dot(L)
+        else:
+            rhs = Gi.T.dot(Bi)
+            lhs = Gi.T.dot(Gi) + alpha ** 2 * L.T.dot(L)
+
         model = np.linalg.solve(lhs, rhs)
 
         residuals = (Bi - Gi.dot(model))
@@ -860,7 +920,8 @@ def design_SHA_per_epoch(data_paths, year_list, epochs, degree, truncation=None)
     tps = []
     for y in year_list:
         for e in epochs:
-            [Br, Bt, Bp, theta, phi, r] = load_single_epoch(files=[data_paths[0], data_paths[1]], year=y, epoch=e)
+            [Br, Bt, Bp, theta, phi, r] = load_single_epoch(files=[data_paths[0], data_paths[1]], year=y, epoch=e,
+                                                            errors_path=False)
 
             n_data = len(Br) + len(Bt) + len(Bp)
             if n_data == 894:
@@ -915,7 +976,8 @@ def design_time_grid(data_paths, year_list, epochs, degree, grid, truncation=Non
         for e in epochs:
             # [Br, theta, phi, r, indices] = load_epochs_r(files=[data_paths[0], data_paths[1]], year=y, epoch=e,
             #                                                 truncation=truncation)
-            [Br, Bt, Bp, theta, phi, r] = load_single_epoch(files=[data_paths[0], data_paths[1]], year=y, epoch=e)
+            [Br, Bt, Bp, theta, phi, r] = load_single_epoch(files=[data_paths[0], data_paths[1]], year=y, epoch=e,
+                                                            errors_path=False)
 
             n_data = len(Br) + len(Bt) + len(Bp)
             if n_data == 894:
@@ -941,8 +1003,8 @@ def design_time_grid(data_paths, year_list, epochs, degree, grid, truncation=Non
 
 
 # --------------------------------------------------- PLOTTING TOOLS -------------------------------------------------
-def global_field_plot(model, model_name='not-specified', radius=6371.2, save=False, vmin=-1e6, vmax=1e6,
-                      component='r', step=.25, projection_type='hammer', cmap='PuOr_r', lat0=0, lon0=0):
+def global_field_plot(model, model_name='not-specified', radius=6371.2, save=False, vmin=-1e6, vmax=1e6, component='r',
+                      step=.25, projection_type='hammer', cmap='PuOr_r', lat0=0, lon0=0, polar_plots=True):
     '''
     This function plot the magnetic field on a global map.
     Input: model
@@ -960,6 +1022,7 @@ def global_field_plot(model, model_name='not-specified', radius=6371.2, save=Fal
         - vmin, vmax: min and max values of colorbar.
         - lat0 and lon0 specifies center of map.
 
+    :param polar_plots:
     :return basemap plot of model with default setting
     '''
     # defines class in order to center zero at "central color" of the colorbar
@@ -1025,6 +1088,53 @@ def global_field_plot(model, model_name='not-specified', radius=6371.2, save=Fal
         plt.savefig(string)
 
     plt.show()
+
+    if polar_plots:
+        # Add polar basemap plots
+        # North Pole:
+        fig, ax = plt.subplots(1, 2, figsize=(10, 10), facecolor='w', edgecolor='k')
+        fig.subplots_adjust(hspace=0.2, wspace=0.1)
+
+        # Basemap object
+        mn = Basemap(projection='nplaea', boundinglat=50, lon_0=0, resolution='l', round=True, ax=ax[0])
+
+        # Create grid
+        phi_grid, theta_grid = np.meshgrid(phi, theta)
+        xx, yy = mn(phi_grid, theta_bound[1] - theta_grid)
+
+        # Colormesh interpolation
+        mn.pcolormesh(xx, yy, B_i, cmap=cmap, norm=MidpointNormalize(midpoint=0.), vmin=vmin, vmax=vmax)
+        mn.drawcoastlines(linewidth=1.)
+        mn.drawparallels(np.arange(0, 90, 10), labels=[1, 1, 1, 1])
+
+        title_string = ('North Pole')
+        ttl = ax[0].title
+        ttl.set_position([.5, 1.05])
+        ax[0].set_title(title_string, fontsize=16, fontweight='bold')
+
+        # South Pole
+        # TODO will fix south pole projection in some way.
+        # Basemap object
+        ms = Basemap(projection='splaea', boundinglat=-50, lon_0=0, resolution='l', round=True, ax=ax[1])
+
+        # Create grid
+        phi_grid, theta_grid = np.meshgrid(phi, theta)
+        xx, yy = ms(phi_grid, theta_bound[1] - theta_grid)
+
+        # outside = (xx < ms.xmin) | (xx > ms.xmax) | (yy < ms.ymin) | (yy > ms.ymax)
+        # B_i = np.ma.masked_where(outside, B_i)
+
+        # Colormesh interpolation
+        ms.pcolormesh(xx, yy, B_i, latlon=False, cmap=cmap, norm=MidpointNormalize(midpoint=0.), vmin=vmin, vmax=vmax)
+        ms.drawcoastlines(linewidth=1.)
+        ms.drawparallels(np.arange(-90, 0, 10), labels=[1, 1, 1, 1])
+
+        title_string = ('South Pole - not working yet')
+        ttl = ax[1].title
+        ttl.set_position([.5, 1.05])
+        ax[1].set_title(title_string, fontsize=16, fontweight='bold')
+
+        plt.show()
 
 
 def time_dep_global_field_plot(model, test_times, reference_times, tau, model_name='not-specified', radius=6371.2,
@@ -1206,7 +1316,7 @@ def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True):
     return
 
 
-def power_spectrum(model, ratio, degree):
+def power_spectrum(model, ratio, degree, plot=True):
     '''
     Computes the Mauersberger-Lowes power spectrum, based on model parameters
     model   = array or list of model coefficients
@@ -1239,6 +1349,23 @@ def power_spectrum(model, ratio, degree):
                 wn.append((n + 1) * ratio ** (2 * n + 4) * np.sum(model[idx:int(c - 1)] ** 2))
                 idx = int(c - 1)
         c += 1
+
+    if plot:
+        degree_range = np.arange(1, degree + 1)
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        plt.semilogy(degree_range, wn, 'r-', label='model')
+
+        plt.legend(fontsize=14)
+        plt.title('Mauersberger-Lowes Power Spectrum', fontsize=22, fontweight='bold')
+        plt.xlabel(r'$\bf{Spherical\ Harmonic\ Degree,\ \it{n}}$', fontsize=18, fontweight='bold')
+        plt.ylabel(r'$\bf{R_n}$' + r'$,\ [(nT)^2]$', fontsize=18, fontweight='bold')
+        ax.set_xticks(range(0, 21))
+        ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
+        ax.tick_params(axis='both', labelsize=18)
+        plt.grid()
+        plt.show()
+
     return wn
 
 # -------------------------------------------------- ADDITIONAL TOOLS ------------------------------------------------
