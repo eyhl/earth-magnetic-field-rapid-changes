@@ -978,12 +978,12 @@ def design_time_grid(data_paths, year_list, epochs, degree, grid, truncation=Non
                     with np.errstate(divide='ignore', invalid='ignore'):
                         [Gr, Gt, Gp] = gmt.design_SHA(r / r_surface, theta, phi, degree)
 
-                    # create list of Gr design matrices, one for each tp
-                    G_swarm_template = np.vstack((Gr, Gt, Gp))
+                    # create list of G design matrices, one for each tp
+                    G_swarm_template = np.vstack((Gr, Gt, Gp)) # For inclusion of all three components
 
                 else:
                     [Gr, Gt, Gp] = gmt.design_SHA(r / r_surface, theta, phi, degree)
-                    G_champ_template = np.vstack((Gr, Gt, Gp))
+                    G_champ_template = np.vstack((Gr, Gt, Gp)) # For inclusion of all three components
 
     for t in grid:
         if t <= 2014:
