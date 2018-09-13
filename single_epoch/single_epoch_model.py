@@ -95,5 +95,7 @@ else:
     [model_final, residuals, misfit_norm, model_norm] = ft.global_field_model(Bi=Bi, Gi=Gi, L=Gr_cmb, degree=degree,
                                                                               errors=None)
 
+string = "coefficients_" + reg_method + ".txt"
 np.savetxt("model_vector_L1.txt", model_final)
+string = "residuals_" + reg_method + ".txt"
 np.savetxt("residuals_vector_test.txt", residuals)

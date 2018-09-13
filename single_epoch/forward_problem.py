@@ -12,7 +12,7 @@ r_core = 3480.  # earths mean core radius
 
 # -------------------------------------------- INPUT CHOICES --------------------------------------------------------
 # choose model path:
-model_final = np.loadtxt("model_vector_L1.txt")
+model_final = np.loadtxt("coefficients_L1.txt")
 
 # choose data paths, separated by commas:
 paths = ['data/VO_SWARM_MF_0101.txt',
