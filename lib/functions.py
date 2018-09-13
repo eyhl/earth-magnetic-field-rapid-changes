@@ -6,7 +6,7 @@ The following toolbox contains the functions used for spherical harmonic analysi
 import numpy as np
 from lib import GMT_tools as gmt
 import pandas as pd
-import numpy.matlib
+from scipy import stats
 import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
 import matplotlib.colors as colors
@@ -346,13 +346,13 @@ def global_field_model(Bi, Gi, L, degree, errors=None, regularise='', alpha=1e-8
 
     # right hand side (rhs) are similar in all cases
     if errors is not None:
-        rhs = Gi.T.dot(np.diag(errors).dot(Bi))
+        rhs = Gi.T.dot(np.diag(1/errors).dot(Bi))
     else:
         rhs = Gi.T.dot(Bi)
 
     if regularise == 'L1':
         if errors is not None:
-            lhs = (Gi.T.dot(np.diag(errors).dot(Gi)) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))  # left hand side (lhs)
+            lhs = (Gi.T.dot(np.diag(1/errors).dot(Gi)) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))  # left hand side (lhs)
         else:
             lhs = (Gi.T.dot(Gi) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))  # left hand side (lhs)
 
@@ -363,7 +363,7 @@ def global_field_model(Bi, Gi, L, degree, errors=None, regularise='', alpha=1e-8
 
     elif regularise == 'L2':
         if errors is not None:
-            lhs = (Gi.T.dot(np.diag(errors).dot(Gi)) + alpha**2 * L.T.dot(L))  # left hand side (lhs)
+            lhs = (Gi.T.dot(np.diag(1/errors).dot(Gi)) + alpha**2 * L.T.dot(L))  # left hand side (lhs)
         else:
             lhs = (Gi.T.dot(Gi) + alpha**2 * L.T.dot(L))  # left hand side (lhs)
 
@@ -374,7 +374,7 @@ def global_field_model(Bi, Gi, L, degree, errors=None, regularise='', alpha=1e-8
 
     else:
         if errors is not None:
-            lhs = Gi.T.dot(np.diag(errors).dot(Gi))  # left hand side (lhs)
+            lhs = Gi.T.dot(np.diag(1/errors).dot(Gi))  # left hand side (lhs)
         else:
             lhs = Gi.T.dot(Gi)  # left hand side (lhs)
 
@@ -456,8 +456,8 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
 
             # compute the model at current iteration
             if errors is not None:
-                rhs = Gi.T.dot(np.diag(errors).dot(Bi))
-                lhs = (Gi.T.dot(np.diag(errors).dot(Gi)) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))
+                rhs = Gi.T.dot(np.diag(1/errors).dot(Bi))
+                lhs = (Gi.T.dot(np.diag(1/errors).dot(Gi)) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))
             else:
                 rhs = Gi.T.dot(Bi)
                 lhs = (Gi.T.dot(Gi) + alpha ** 2 * L.T.dot(np.diag(wm)).dot(L))
@@ -521,8 +521,8 @@ def L2_norm(Bi, Gi, L, alpha_list, errors=None):
 
     for alpha in alpha_list:
         if errors is not None:
-            rhs = Gi.T.dot(np.diag(errors).dot(Bi))
-            lhs = Gi.T.dot(np.diag(errors).dot(Gi)) + alpha**2 * L.T.dot(L)
+            rhs = Gi.T.dot(np.diag(1/errors).dot(Bi))
+            lhs = Gi.T.dot(np.diag(1/errors).dot(Gi)) + alpha**2 * L.T.dot(L)
         else:
             rhs = Gi.T.dot(Bi)
             lhs = Gi.T.dot(Gi) + alpha ** 2 * L.T.dot(L)
@@ -1217,7 +1217,7 @@ def time_dep_global_field_plot(model, test_times, reference_times, tau, model_na
     plt.show()
 
 
-def errors_plot(residuals, choice=[True, False], latitude=False, convert=True, savefig=False):
+def errors_plot(residuals, choice=[True, False], latitude=False, convert=True, savefig=False, pdf_type="laplace"):
     '''
     Plots errors of a model. Default plots only histogram.
 
@@ -1227,6 +1227,7 @@ def errors_plot(residuals, choice=[True, False], latitude=False, convert=True, s
     latitude    - input latitude if choice[1] is True
     convert     - set to False if latitude is already in degrees
 
+    :param pdf_type:
     :return: plot(s)
     '''
     if convert:
@@ -1236,22 +1237,47 @@ def errors_plot(residuals, choice=[True, False], latitude=False, convert=True, s
             print('Please input latitudes')
 
     if choice[0]:
-        # best fit of data
-        (mu, sigma) = norm.fit(residuals)
+        if pdf_type == "laplace":
+            # create histogram of residuals
+            plt.hist(residuals, bins=len(residuals), normed=True)
+            xt = plt.xticks()[0]
+            xmin, xmax = min(xt), max(xt)
+            lnspc = np.linspace(xmin, xmax, len(residuals))
 
-        # the histogram of the data
-        n, bins, patches = plt.hist(residuals, bins=50, normed=1, facecolor='green')
+            # fit laplace distribution to histogram
+            m, s = stats.laplace.fit(residuals)  # get mean and standard deviation
+            pdf_g = stats.laplace.pdf(lnspc, m, s)  # now get theoretical values in the interval
+            plt.plot(lnspc, pdf_g, label="Laplace pdf fit")  # plot it
+            plt.title(r'$\bf{\mu=%.3f,\ \sigma=%.3f}$' % (m, s), fontsize=14)
+            plt.xlabel('Error values, [nT]', fontsize=14)
+            plt.ylabel('Count', fontsize=14)
+            ax = plt.gca()
+            ax.yaxis.grid(which='major', color='grey', linestyle='dashed')
+            ax.xaxis.grid(which='major', color='grey', linestyle='dashed')
+            ax.set_axisbelow(True)
 
-        # add a 'best fit' line
-        y = mlab.normpdf(bins, mu, sigma)
-        l = plt.plot(bins, y, 'b--', linewidth=2)
-        plt.title(r'$\bf{\mu=%.3f,\ \sigma=%.3f}$' % (mu, sigma), fontsize=14)
-        plt.xlabel('Error values, [nT]', fontsize=14)
-        plt.ylabel('Count', fontsize=14)
-        ax = plt.gca()
-        ax.yaxis.grid(which='major', color='grey', linestyle='dashed')
-        ax.xaxis.grid(which='major', color='grey', linestyle='dashed')
-        ax.set_axisbelow(True)
+        elif pdf_type == "norm":
+            # create histogram of residuals
+            plt.hist(residuals, bins=len(residuals), normed=True)
+            xt = plt.xticks()[0]
+            xmin, xmax = min(xt), max(xt)
+            lnspc = np.linspace(xmin, xmax, len(residuals))
+
+            # fit laplace distribution to histogram
+            m, s = stats.norm.fit(residuals)  # get mean and standard deviation
+            pdf_g = stats.norm.pdf(lnspc, m, s)  # now get theoretical values in the interval
+            plt.plot(lnspc, pdf_g, label="Normal pdf fit")  # plot it
+            plt.title(r'$\bf{\mu=%.3f,\ \sigma=%.3f}$' % (m, s), fontsize=14)
+            plt.xlabel('Error values, [nT]', fontsize=14)
+            plt.ylabel('Count', fontsize=14)
+            ax = plt.gca()
+            ax.yaxis.grid(which='major', color='grey', linestyle='dashed')
+            ax.xaxis.grid(which='major', color='grey', linestyle='dashed')
+            ax.set_axisbelow(True)
+        else:
+            print('Error: Please choose either "norm" for normal distributed residuals, '
+                  'or "laplace" for laplace distributed residuals')
+
 
         if savefig:
             plt.savefig('Error_histogram.png')
