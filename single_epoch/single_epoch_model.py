@@ -68,7 +68,7 @@ if reg_method == 'L1':
     [model_list, residuals_list, misfit_list, model_norm_list, gamma_list] = ft.L1_norm(Bi=Bi, Gi=Gi, L=Gr_cmb,
                                                                                         degree=degree,
                                                                                         alpha_list=alpha_list,
-                                                                                        errors=None,
+                                                                                        errors=errors[0],
                                                                                         gamma=1, eps=1e-4,
                                                                                         converged=1e-3, printall=False)
 
@@ -95,5 +95,5 @@ else:
     [model_final, residuals, misfit_norm, model_norm] = ft.global_field_model(Bi=Bi, Gi=Gi, L=Gr_cmb, degree=degree,
                                                                               errors=None)
 
-np.savetxt("model_vector_L1_no_err.txt", model_final)
+np.savetxt("model_vector_L1.txt", model_final)
 np.savetxt("residuals_vector_test.txt", residuals)

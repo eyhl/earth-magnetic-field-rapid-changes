@@ -12,7 +12,7 @@ r_core = 3480.  # earths mean core radius
 
 # -------------------------------------------- INPUT CHOICES --------------------------------------------------------
 # choose model path:
-model_final = np.loadtxt("model_vector_L1_err.txt")
+model_final = np.loadtxt("model_vector_L1.txt")
 
 # choose data paths, separated by commas:
 paths = ['data/VO_SWARM_MF_0101.txt',
@@ -40,8 +40,8 @@ residuals = Br - synthetic_data
 
 
 # -------------------------------------------------- PLOTTING -------------------------------------------------------
-# ft.power_spectrum(model_final, r_surface/r_core, degree)
-# ft.errors_plot(residuals=residuals)
-# ft.errors_plot(residuals=residuals, choice=[False, True], latitude=theta)
+ft.power_spectrum(model_final, r_surface/r_core, degree)
+ft.errors_plot(residuals=residuals)
+ft.errors_plot(residuals=residuals, choice=[False, True], latitude=theta)
 ft.global_field_plot(model_final, model_name="Core field", radius=r_core, save='n', vmin=-1e6, vmax=1e6, cmap='PuOr_r')
 

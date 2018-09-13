@@ -164,10 +164,8 @@ def load_single_vo(files, Bi, theta, phi, header_size=4, NaN_marker=99999.):
 
     # handles NaNs
     data_VO = data_VO.replace(NaN_marker, np.nan)  # set all 99999 values to NaN
-    # print()
     data_VO.loc[data_VO.isnull().any(axis=1), 0:2] = np.nan
-    data_VO.loc[data_VO.isnull().any(axis=1), 3::] = "poul" #np.nan
-    print(data_VO[data_VO == "poul"])
+    data_VO.loc[data_VO.isnull().any(axis=1), 3::] = np.nan
     data_VO = data_VO.fillna(value=0)  # fill NaNs with zeros
 
     # every year appears several times in file
@@ -216,9 +214,6 @@ def load_single_vo(files, Bi, theta, phi, header_size=4, NaN_marker=99999.):
     data_VO.loc[mask_epoch3, column_name] = one_third_year
     data_VO.loc[mask_epoch7, column_name] = 2 * one_third_year
     data_VO.loc[mask_epoch11, column_name] = 2.9999999 * one_third_year
-    #
-    # count_full_years = data_time.groupby('Year').count()
-    # data_time = data_time.loc[data_time['Year'].isin(count_full_years[count_full_years['Month'] == 3].index)]
 
     times = (data_VO['Year'] + data_VO['Month']).values
 
@@ -226,7 +221,6 @@ def load_single_vo(files, Bi, theta, phi, header_size=4, NaN_marker=99999.):
     Br = data_VO['Br'].values
     Bt = data_VO['Bt'].values
     Bp = data_VO['Bp'].values
-    r = data_VO['r'].values
 
     return Br, Bt, Bp, times, sv, sv_time
 
@@ -920,8 +914,8 @@ def design_SHA_per_epoch(data_paths, year_list, epochs, degree, truncation=None)
     tps = []
     for y in year_list:
         for e in epochs:
-            [Br, Bt, Bp, theta, phi, r] = load_single_epoch(files=[data_paths[0], data_paths[1]], year=y, epoch=e,
-                                                            errors_path=False)
+            [Br, Bt, Bp, theta, phi, r, errors] = load_single_epoch(files=[data_paths[0], data_paths[1]], year=y, epoch=e,
+                                                            errors_path=None)
 
             n_data = len(Br) + len(Bt) + len(Bp)
             if n_data == 894:
@@ -974,10 +968,8 @@ def design_time_grid(data_paths, year_list, epochs, degree, grid, truncation=Non
     tps = []
     for y in year_list:
         for e in epochs:
-            # [Br, theta, phi, r, indices] = load_epochs_r(files=[data_paths[0], data_paths[1]], year=y, epoch=e,
-            #                                                 truncation=truncation)
-            [Br, Bt, Bp, theta, phi, r] = load_single_epoch(files=[data_paths[0], data_paths[1]], year=y, epoch=e,
-                                                            errors_path=False)
+            [Br, Bt, Bp, theta, phi, r, errors] = load_single_epoch(files=[data_paths[0], data_paths[1]], year=y, epoch=e,
+                                                            errors_path=None)
 
             n_data = len(Br) + len(Bt) + len(Bp)
             if n_data == 894:

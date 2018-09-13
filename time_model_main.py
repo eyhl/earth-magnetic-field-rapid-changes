@@ -33,6 +33,7 @@ N = degree * (degree + 2)
 r_surface = 6371.2
 r_core = 3480.
 deg = 180/np.pi
+next_vo = 894
 
 # times of data
 tp = [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2014, 2015, 2016, 2017]
@@ -95,8 +96,8 @@ list_of_ranges = [[-34000, -30500], [42500, 48000], [16000, 18500]]
 axs = axs.ravel()
 
 for i in range(len(indices)):
-    Br_synVO = Br_synth[indices[i][0]::894]
-    Br_data = Bs[indices[i][0]::894]
+    Br_synVO = Br_synth[indices[i][0]::next_vo]
+    Br_data = Bs[indices[i][0]::next_vo]
     axs[i].plot(time_grid[time_mask], Br_synVO[time_mask], 'r.', label='VO prediction')
     axs[i].plot(tps_data, Br_data, 'b+', label='VO data')
     # axs[i].set_ylim(list_of_ranges[i])
@@ -131,7 +132,7 @@ for i in range(len(indices)):
     [Br, Bt, Bp, times, sv, sv_time] = ft.load_single_vo(files=files, Bi='Br',
                                                          theta=theta[indices[i][0]] * deg, phi=phi[indices[i][0]] * deg)
 
-    Br_synth_tmp = Br_synth[indices[i][0]::894]
+    Br_synth_tmp = Br_synth[indices[i][0]::next_vo]
 
     sv_synth = np.empty([time_span - 1, 0])
     sv_synth_time = np.empty([time_span - 1, 0])
