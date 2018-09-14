@@ -15,7 +15,7 @@ from lib import functions as ft
 # Data paths, loaded in next loop.
 # read list of tau(n)
 
-file = '/Users/eyu/Google Drive/DTU/6_semester/Bachelor/Bachelorproject/data/tau_spect_av_GUFM-SAT-E3.txt'
+file = 'data/tau_spect_av_GUFM-SAT-E3.txt'
 tau = pd.read_table(file, header=None, delim_whitespace=True)
 
 # naming columns
@@ -23,8 +23,8 @@ tau.columns = ['degree', 'tau_MF [years]', 'tan_SV ([years]']
 
 tau = tau['tau_MF [years]'].values * 1
 
-file1 = '/Users/eyu/Google Drive/DTU/6_semester/Bachelor/Bachelorproject/data/VO_CHAMP_MF0101.txt'
-file2 = '/Users/eyu/Google Drive/DTU/6_semester/Bachelor/Bachelorproject/data/VO_SWARM_MF_0101.txt'
+file1 = 'data/VO_CHAMP_MF0101.txt'
+file2 = 'data/VO_SWARM_MF_0101.txt'
 files = [file1, file2]
 
 # ------------------------------------------------- SET VALUES -------------------------------------------------------
@@ -170,4 +170,3 @@ for i in range(len(indices)):
 
 # plt.savefig('SV_three_VOs.png')
 plt.show()
-
