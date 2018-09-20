@@ -1,6 +1,10 @@
 from lib import GMT_tools as gmt
 from lib import functions as ft
 import numpy as np
+import sys
+
+# for looking in a directory above
+sys.path.append('../..')
 
 '''
 This script computes a geomagnetic model in a single component for a single epoch. Optional regularisation.

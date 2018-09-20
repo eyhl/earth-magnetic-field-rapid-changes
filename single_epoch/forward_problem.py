@@ -1,6 +1,11 @@
 from lib import GMT_tools as gmt
 from lib import functions as ft
 import numpy as np
+import sys
+
+# for looking in a directory above
+sys.path.append('../..')
+
 
 '''
 Computes the forward problem given a model. Default is r-component, can be changed in "Forward problem"-section if
@@ -12,7 +17,7 @@ r_core = 3480.  # earths mean core radius
 
 # -------------------------------------------- INPUT CHOICES --------------------------------------------------------
 # choose model path:
-model_final = np.loadtxt("coefficients_L1.txt")
+model_final = np.loadtxt("model_files/coefficients_L1.txt")
 
 # choose data paths, separated by commas:
 paths = ['data/VO_SWARM_MF_0101.txt',
