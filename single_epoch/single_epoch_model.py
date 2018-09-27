@@ -2,6 +2,7 @@ from lib import GMT_tools as gmt
 from lib import functions as ft
 import numpy as np
 import sys
+import healpy as hp
 
 # for looking in a directory above
 sys.path.append('../..')
@@ -23,8 +24,8 @@ err_path = 'data/VO_MF_SWARM_COV_diag_0104.txt'
 # year between 2001-2017 (if both swarm and champ data is available), epoch choose 3,7 or 11:
 [year, epoch] = [2017, 7]
 
-# choose field component to compute:
-Bi = 'Br'
+# choose field component to compute, 'Br', or 'all':
+Bi = 'all'
 
 # spherical harmonic degree:
 degree = 20
@@ -34,9 +35,9 @@ reg_method = 'L1'
 
 # In case of L1, create list of alphas. Number of alphas to be evaluated and the limits given as 10^limit:
 if reg_method == 'L1':
-    [spacing, alpha_min, alpha_max] = [50, -5, -1]
+    [spacing, alpha_min, alpha_max] = [40, -5, -1]
 else:
-    [spacing, alpha_min, alpha_max] = [100, -6.8, -6.7]
+    [spacing, alpha_min, alpha_max] = [80, -6.8, -6.7]
 
 alpha_list = np.logspace(alpha_min, alpha_max, spacing)
 
@@ -50,7 +51,7 @@ for path in paths:
 
 # PRE-MODELLING
 # compute design matrix at core mantle boundary
-[Gr_cmb, Gt_cmb, Gp_cmb] = ft.compute_G_cmb(stepsize=5, degree=degree)
+[Gr_cmb, Gt_cmb, Gp_cmb] = ft.compute_G_cmb(refinement_degree=4, degree=degree)
 
 # compute design matrix
 [Gr, Gt, Gp] = gmt.design_SHA(r / r_surface, theta, phi, degree)
@@ -59,22 +60,25 @@ for path in paths:
 if Bi == 'Br':
     Bi = Br
     Gi = Gr
-elif Bi == 'Bt':
-    Bi = Bt
-    Gi = Gt
-elif Bi == 'Bp':
-    Bi = Bp
-    Gi = Gp
+    L = Gr_cmb
+    errors = errors[0]
+elif Bi == 'all':
+    Bi = np.hstack((Br, Bt, Bp))
+    Gi = np.vstack((Gr, Gt, Gp))
+    L = np.vstack((Gr_cmb, Gt_cmb, Gp_cmb))
+    errors = np.hstack((errors[0], errors[1], errors[2]))
+
 
 # ------------------------------------------------ MODELLING ---------------------------------------------------------
 if reg_method == 'L1':
     # compute models corresponding to different alphas
-    [model_list, residuals_list, misfit_list, model_norm_list, gamma_list] = ft.L1_norm(Bi=Bi, Gi=Gi, L=Gr_cmb,
+    [model_list, residuals_list, misfit_list, model_norm_list, gamma_list] = ft.L1_norm(Bi=Bi, Gi=Gi, L=L,
                                                                                         degree=degree,
                                                                                         alpha_list=alpha_list,
-                                                                                        errors=errors[0],
-                                                                                        gamma=1, eps=1e-4,
-                                                                                        converged=1e-3, printall=False)
+                                                                                        errors=errors, gamma=1,
+                                                                                        eps=1e-4,
+                                                                                        convergence_limit=1e-3,
+                                                                                        printall=False)
 
     # find the alpha that yields the best model:
     [best_alpha, alpha_index, kappa] = ft.L_curve_corner(rho=misfit_list, eta=model_norm_list, alpha=alpha_list)
@@ -86,8 +90,8 @@ if reg_method == 'L1':
 
 elif reg_method == 'L2':
     # compute models corresponding to different alphas
-    [model_list, residuals_list, misfit_list, model_norm_list] = ft.L2_norm(Bi=Bi, Gi=Gi, L=Gr_cmb,
-                                                                            alpha_list=alpha_list, errors=None)
+    [model_list, residuals_list, misfit_list, model_norm_list] = ft.L2_norm(Bi=Bi, Gi=Gi, L=L,
+                                                                            alpha_list=alpha_list, errors=errors)
 
     # find the alpha that yields the best model:
     [best_alpha, alpha_index, kappa] = ft.L_curve_corner(rho=misfit_list, eta=model_norm_list, alpha=alpha_list)
@@ -96,10 +100,10 @@ elif reg_method == 'L2':
     residuals = residuals_list[alpha_index]
 
 else:
-    [model_final, residuals, misfit_norm, model_norm] = ft.global_field_model(Bi=Bi, Gi=Gi, L=Gr_cmb, degree=degree,
-                                                                              errors=None)
+    [model_final, residuals, misfit_norm, model_norm] = ft.global_field_model(Bi=Bi, Gi=Gi, L=L, degree=degree,
+                                                                              errors=errors)
 
 string = "coefficients_" + reg_method + ".txt"
-np.savetxt("model_vector_L1.txt", model_final)
+np.savetxt(string, model_final)
 string = "residuals_" + reg_method + ".txt"
-np.savetxt("residuals_vector_test.txt", residuals)
+np.savetxt(string, residuals)

@@ -13,6 +13,8 @@ import matplotlib.colors as colors
 from scipy.stats import norm
 import matplotlib.mlab as mlab
 import matplotlib.ticker as ticker
+import healpy as hp
+
 pd.options.mode.chained_assignment = None  # default='warn'
 
 
@@ -387,7 +389,7 @@ def global_field_model(Bi, Gi, L, degree, errors=None, regularise='', alpha=1e-8
     return model, residuals, misfit_norm, model_norm
 
 
-def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, converged=0.001, printall=False):
+def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, convergence_limit=0.001, printall=False):
     '''
     This function computes L1-regularised models corresponding to a list of regularisation parameters (alphas). In this
     regard a weighting matrix is introduced.
@@ -435,7 +437,7 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
         if printall == 'n':
             pass
         else:
-            print('current alpha: ', alpha)
+            print(len(alpha_list) - np.where(alpha_list==alpha)[0][0], 'alphas remaining. Current alpha:', alpha)
 
         # for every new alpha, start up with initial guess:
         gamma = 1
@@ -448,7 +450,7 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
 
         # counter for print option
         i = 0
-        while convergence > converged:
+        while convergence > convergence_limit:
             gamma = L.dot(model_previous)
 
             # defining the weight matrix for L1
@@ -476,6 +478,10 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
                 pass
             elif i % 10 == 1:
                 print('convergence', convergence)
+
+            if i > 150:
+                print('Warning model not converging at alpha={}: change input or convergence limit'.format(alpha))
+                break
 
         # computes model norm, residuals and misfit for evaluation purposes
         model_norm = 1/N * np.sum(np.abs(gamma))
@@ -543,7 +549,7 @@ def L2_norm(Bi, Gi, L, alpha_list, errors=None):
     return model_list, residuals_list, misfit_list, model_norm_list
 
 
-def compute_G_cmb(stepsize, degree):
+def compute_G_cmb(refinement_degree, degree):
     '''
     Computes the G design matrix at the core mantle boundary to be used
     in the regularisation term of regularised least squares.
@@ -555,18 +561,25 @@ def compute_G_cmb(stepsize, degree):
     r_surface = 6371.2  # earths mean radius, often called a.
     r_core = 3480.
 
-    # computes a regular grid
-    theta_cmb = np.arange(180 - stepsize / 2, 0, - stepsize)
-    phi_cmb = np.arange(-180 + stepsize / 2, 180 - stepsize / 2, stepsize)
-    theta_cmb_grid, phi_cmb_grid = np.meshgrid(theta_cmb, phi_cmb)
+    # # computes a regular grid
+    # theta_cmb = np.arange(180 - stepsize / 2, 0, - stepsize)
+    # phi_cmb = np.arange(-180 + stepsize / 2, 180 - stepsize / 2, stepsize)
+    # theta_cmb_grid, phi_cmb_grid = np.meshgrid(theta_cmb, phi_cmb)
+    #
+    # theta_cmb_grid = np.reshape(theta_cmb_grid, np.size(theta_cmb_grid), 1)
+    # phi_cmb_grid = np.reshape(phi_cmb_grid, np.size(phi_cmb_grid), 1)
+    # length = len(theta_cmb_grid)
 
-    theta_cmb_grid = np.reshape(theta_cmb_grid, np.size(theta_cmb_grid), 1)
-    phi_cmb_grid = np.reshape(phi_cmb_grid, np.size(phi_cmb_grid), 1)
-    length = len(theta_cmb_grid)
+    nside = 2 ** refinement_degree  # the healpy nside parameter must be a power of 2
+    m = np.arange(hp.nside2npix(nside))
+    theta, phi = hp.pixelfunc.pix2ang(nside, m, nest=False, lonlat=False)
+
+    phi_grid = phi * 180 / np.pi
+    theta_grid = theta * 180 / np.pi
 
     # comutes design matrix at core mantle boundary (cmb), based on grid.
-    [Gr_cmb, Gt_cmb, Gp_cmb] = gmt.design_SHA(r_core / r_surface * np.ones(length),
-                                              theta_cmb_grid, phi_cmb_grid, degree)
+    [Gr_cmb, Gt_cmb, Gp_cmb] = gmt.design_SHA(r_core / r_surface * np.ones(len(theta_grid)),
+                                              theta_grid, phi_grid, degree)
     return Gr_cmb, Gt_cmb, Gp_cmb
 
 
