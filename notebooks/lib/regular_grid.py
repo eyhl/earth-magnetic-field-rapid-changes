@@ -76,6 +76,8 @@ def refine_triangle(refinement_degree):
     # midpoints of triangles are hexagon vertices, found by:
     fixed_hexagon = np.sum(refined_triangle, axis=1) / 3
 
+    # TODO: ved lejlighed så spørg lige stefan om det her.
+    # evt 10 * 4**n
     n_points = np.prod(np.shape(refined_triangle)[0:2])  # number of points (no. of triangles in refinement * 3)
 
     fixed_triangle = np.resize(refined_triangle, (n_points, 2))  # resize into a single list

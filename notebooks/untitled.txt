@@ -1,0 +1,6 @@
+todo: 
+
+notebook of icosahedron method
+notebook of healpix (short)
+notebook of L1
+notebook of time_GP
