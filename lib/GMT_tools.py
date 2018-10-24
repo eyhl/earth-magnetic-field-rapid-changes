@@ -84,7 +84,7 @@ def design_SHA(r, theta, phi, nmax):
     Pnm = get_Pnm(nmax, theta)
     sinth = Pnm[1][1]
 
-# construct A_r, A_theta, A_phi
+    # construct A_r, A_theta, A_phi
     A_r =     np.zeros((nmax*(nmax+2), len(theta)))
     A_theta = np.zeros((nmax*(nmax+2), len(theta)))
     A_phi =   np.zeros((nmax*(nmax+2), len(theta)))
