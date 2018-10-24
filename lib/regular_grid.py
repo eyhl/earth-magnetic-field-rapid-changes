@@ -1,3 +1,12 @@
+"""
+Functions for computing a approximate regular grid following the icosahedral method.
+
+Originally adopted from a comment from
+https://stackoverflow.com/questions/46777626/mathematically-producing-sphere-shaped-hexagonal-grid by user 'coproc'
+(3/10/2018)
+@implemented by: Stefan Krebs Lange-Willman <s140447@student.dtu.dk>
+@edited by: Eigil Y. H. Lippert <s132561@student.dtu.dk>
+"""
 import numpy as np
 from math import atan2, sin, cos, sqrt, pi
 
@@ -76,7 +85,7 @@ def refine_triangle(refinement_degree):
     # midpoints of triangles are hexagon vertices, found by:
     fixed_hexagon = np.sum(refined_triangle, axis=1) / 3
 
-    n_points = np.prod(np.shape(refined_triangle)[0:2])  # number of points (no. of triangles in refinement * 3)
+    n_points = 3 * 4 ** refinement_degree  # number of points (no. of triangles in refinement * 3)
 
     fixed_triangle = np.resize(refined_triangle, (n_points, 2))  # resize into a single list
 
@@ -86,6 +95,12 @@ def refine_triangle(refinement_degree):
 
 
 def get_indices(fixed_triangle, fixed_hexagon):
+    '''
+    Takes the
+    :param fixed_triangle:
+    :param fixed_hexagon:
+    :return:
+    '''
     dist_xy = fixed_triangle[:, :, None] - np.transpose(fixed_hexagon)
     dist = (np.sum(dist_xy ** 2, axis=1)).round(10)  # no need to take sqrt
     indices = np.where(dist.transpose() == dist.min())  # indices of minimum values
@@ -94,13 +109,15 @@ def get_indices(fixed_triangle, fixed_hexagon):
     return indices
 
 
-def project_grid_to_sphere(refined_grid, icosahedral_points, icosahedral_triangles, indices):
+def project_grid_to_sphere(refined_grid, icosahedral_vertices, icosahedral_triangles, indices,
+                           spherical_coordinates=True):
     '''
     Projects a icosahedral grid (3d) onto a sphere. It works through each triangle (face) in the icosahedral grid and
     creates a grid inside that triangle based on the refined grid.
     If spherical_coords are set to True, the icosahedral vertices coordinates are returned in spherical coordinates
     (radians)
 
+    :param spherical_coordinates:
     :param fixed_grid:
     :param indices:
     :return:
@@ -115,9 +132,9 @@ def project_grid_to_sphere(refined_grid, icosahedral_points, icosahedral_triangl
     icosahedral_faces = np.zeros((20 * n_faces, 3))
 
     for j in range(20):
-        s1 = icosahedral_points[icosahedral_triangles[j][0]]
-        s2 = icosahedral_points[icosahedral_triangles[j][1]]
-        s3 = icosahedral_points[icosahedral_triangles[j][2]]
+        s1 = icosahedral_vertices[icosahedral_triangles[j][0]]
+        s2 = icosahedral_vertices[icosahedral_triangles[j][1]]
+        s3 = icosahedral_vertices[icosahedral_triangles[j][2]]
         for i in range(n_vertices):
             p = [refined_grid[i, 0], refined_grid[i, 1]]  # 2D point to be mapped to sphere
             icosahedral_sphere[n_vertices * j + i, :] = map_gridpoint_to_sphere(p, s1, s2, s3)
@@ -126,6 +143,19 @@ def project_grid_to_sphere(refined_grid, icosahedral_points, icosahedral_triangl
 
     # print(icosahedral_sphere)
     icosahedral_faces = icosahedral_faces.astype(int)
+
+    # convert xyz to spherical coordinates
+    if spherical_coordinates:
+        xy_tmp = icosahedral_sphere[:, 0] ** 2 + icosahedral_sphere[:, 1] ** 2  # enabling swapping arccos with arctan2
+        r = np.sqrt(xy_tmp + icosahedral_sphere[:, 1] ** 2)
+        phi = np.arctan2(icosahedral_sphere[:, 1], icosahedral_sphere[:, 0])
+        theta = np.arctan2(np.sqrt(xy_tmp), icosahedral_sphere[:, 2])
+        theta[np.where(theta == 0)] = 1e-9  # in order to avoid division by zero
+        theta[np.where(theta == 180)] = 179.999999999  # avoiding division by zero in G_lambda
+        icosahedral_sphere = np.array([r, theta, phi]).T
+
+    # in order to not count points on the border between triangles several times, we have to round to get all duplicates
+    icosahedral_sphere = np.unique(np.round(icosahedral_sphere, decimals=10), axis=0)
 
     return icosahedral_sphere, icosahedral_faces
 

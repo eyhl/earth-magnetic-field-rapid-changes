@@ -10,15 +10,13 @@ from scipy import stats
 import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
 import matplotlib.colors as colors
-from scipy.stats import norm
-import matplotlib.mlab as mlab
 import matplotlib.ticker as ticker
-import healpy as hp
+from lib import regular_grid as rg
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
 
-# ------------------------------------------------------ LOADING ------------------------------------------------------
+#%% ------------------------------------------------------ LOADING -----------------------------------------------------
 def load_single_epoch(files, year, epoch, errors_path=None, header_size=4, NaN_marker=99999.):
     '''
     This functions loads in data from the global magnetic field for a chosen year and epoch (3,7,11).
@@ -309,7 +307,7 @@ def get_vo_indices(files, year, epoch, vo_coordinates, truncation=None, header_s
     return theta, phi, indices
 
 
-# ---------------------------------------------------- SINGLE EPOCH ---------------------------------------------------
+#%% ---------------------------------------------------- SINGLE EPOCH --------------------------------------------------
 def global_field_model(Bi, Gi, L, degree, errors=None, regularise='', alpha=1e-8, gamma=1, eps=1e-4):
     '''
     Computes global model of the geomagnetic field at the surface, given by least squares estimate:
@@ -433,11 +431,21 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
     size_array = np.array([np.size(L, 0), np.size(L, 1)])  # array with number of rows and columns in L
     correct_size = int(size_array[np.argwhere(size_array != degree*(degree + 2))])  # size != number of coefficients
 
+    # if available define the error estimates as the inverse error covariance matrix, and the simple left hand and right
+    # hand side of the least squares problem are defined.
+    if errors is not None:
+        We = np.diag(1/errors)
+        rhs = Gi.T.dot(We.dot(Bi))
+        lhs = Gi.T.dot(We.dot(Gi))
+    else:
+        rhs = Gi.T.dot(Bi)
+        lhs = Gi.T.dot(Gi)
+
     for alpha in alpha_list:
         if printall == 'n':
             pass
         else:
-            print(len(alpha_list) - np.where(alpha_list==alpha)[0][0], 'alphas remaining. Current alpha:', alpha)
+            print(len(alpha_list) - np.where(alpha_list == alpha)[0][0], 'alphas remaining. Current alpha:', alpha)
 
         # for every new alpha, start up with initial guess:
         gamma = 1
@@ -451,19 +459,16 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
         # counter for print option
         i = 0
         while convergence > convergence_limit:
+            # the model norm defined as Lm = abs(gamma), the absolute value is computed later
             gamma = L.dot(model_previous)
 
             # defining the weight matrix for L1
             wm = np.ones(correct_size) * 1 / np.sqrt(gamma ** 2 + eps ** 2)
 
-            # compute the model at current iteration
-            if errors is not None:
-                rhs = Gi.T.dot(np.diag(1/errors).dot(Bi))
-                lhs = (Gi.T.dot(np.diag(1/errors).dot(Gi)) + alpha**2 * L.T.dot(np.diag(wm)).dot(L))
-            else:
-                rhs = Gi.T.dot(Bi)
-                lhs = (Gi.T.dot(Gi) + alpha ** 2 * L.T.dot(np.diag(wm)).dot(L))
+            # add the regularising term to the left hand side
+            lhs = lhs + alpha**2 * L.T.dot(np.diag(wm)).dot(L)
 
+            # solve for the model coefficients
             model_current = np.linalg.solve(lhs, rhs)
 
             # compute convergence parameter
@@ -486,7 +491,7 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
         # computes model norm, residuals and misfit for evaluation purposes
         model_norm = 1/N * np.sum(np.abs(gamma))
         residuals = (Bi - Gi.dot(model_current))
-        misfit = 1/N * np.sqrt(residuals.T.dot(residuals))
+        misfit = 1/N * np.sqrt(residuals.T.dot(We.dot(residuals)))
 
         # list for finding the best model wrt given alpha
         gamma_list.append(gamma)
@@ -525,13 +530,18 @@ def L2_norm(Bi, Gi, L, alpha_list, errors=None):
     model_norm_list = []  # sometimes denoted eta
     residuals_list = []
 
+    # if available define the error estimates as the inverse error covariance matrix, and the simple left hand and right
+    # hand side of the least squares problem are defined.
+    if errors is not None:
+        We = np.diag(1 / errors)
+        rhs = Gi.T.dot(We.dot(Bi))
+        lhs = Gi.T.dot(We.dot(Gi))
+    else:
+        rhs = Gi.T.dot(Bi)
+        lhs = Gi.T.dot(Gi)
+
     for alpha in alpha_list:
-        if errors is not None:
-            rhs = Gi.T.dot(np.diag(1/errors).dot(Bi))
-            lhs = Gi.T.dot(np.diag(1/errors).dot(Gi)) + alpha**2 * L.T.dot(L)
-        else:
-            rhs = Gi.T.dot(Bi)
-            lhs = Gi.T.dot(Gi) + alpha ** 2 * L.T.dot(L)
+        lhs = lhs + alpha ** 2 * L.T.dot(L)
 
         model = np.linalg.solve(lhs, rhs)
 
@@ -548,38 +558,85 @@ def L2_norm(Bi, Gi, L, alpha_list, errors=None):
 
     return model_list, residuals_list, misfit_list, model_norm_list
 
+from decimal import *
 
-def compute_G_cmb(refinement_degree, degree):
+def compute_G_cmb(refinement_degree, degree, grid_type="icosahedral"):
     '''
-    Computes the G design matrix at the core mantle boundary to be used
-    in the regularisation term of regularised least squares.
+    Computes the G design matrix on a grid at the core mantle boundary to be used
+    in the regularisation term of regularised least squares. Different methods for
+    computing the grid can be used, here called grid types. Returns design matrices
+    for the three spherical components.
+
+    The relation between number of grid points and refinement degree is:
+         uniform: Npoints = (180/refinement_degree) * (360/refinement_degree - 1)
+         icosahedral: Npoints = 2 + 10 * 4 ** refinement_degree
+         healpix: Npoints = 12 * 2 ** (2 * refinement_degree)
+
     stepsize    - step sized of the regular grid used for input in the design_SHA()
     degree      - harmonic degree
+    grid_type   - choose between "uniform", "icosahedral"(default) and "healpix" grids.
+
     :return: Gr_cmb, Gt_cmb, Gp_cmb
     '''
-
     r_surface = 6371.2  # earths mean radius, often called a.
     r_core = 3480.
 
-    # # computes a regular grid
-    # theta_cmb = np.arange(180 - stepsize / 2, 0, - stepsize)
-    # phi_cmb = np.arange(-180 + stepsize / 2, 180 - stepsize / 2, stepsize)
-    # theta_cmb_grid, phi_cmb_grid = np.meshgrid(theta_cmb, phi_cmb)
-    #
-    # theta_cmb_grid = np.reshape(theta_cmb_grid, np.size(theta_cmb_grid), 1)
-    # phi_cmb_grid = np.reshape(phi_cmb_grid, np.size(phi_cmb_grid), 1)
-    # length = len(theta_cmb_grid)
+    if grid_type == "icosahedral":
+        # compute icosahedral grid
+        icos_points, icos_triangs = rg.define_icosahedral_grid()
 
-    nside = 2 ** refinement_degree  # the healpy nside parameter must be a power of 2
-    m = np.arange(hp.nside2npix(nside))
-    theta, phi = hp.pixelfunc.pix2ang(nside, m, nest=False, lonlat=False)
+        # create base triangle and refine to chosen degree
+        fixed_triangle, fixed_hexagon, n_points = rg.refine_triangle(refinement_degree)
 
-    phi_grid = phi * 180 / np.pi
-    theta_grid = theta * 180 / np.pi
+        # get indices of all faces
+        indices = rg.get_indices(fixed_triangle, fixed_hexagon)
 
+        # project onto sphere
+        icosahedral_sphere, icos_faces = rg.project_grid_to_sphere(fixed_triangle, icos_points, icos_triangs, indices)
+
+        theta, phi = icosahedral_sphere[:, 1], icosahedral_sphere[:, 2]
+
+        # convert to degrees
+        theta_grid = theta * 180 / np.pi
+        phi_grid = phi * 180 / np.pi
+
+        theta[np.where(theta == 0.)] = 1e-10  # in order to avoid division by zero
+        theta[np.where(theta == 180)] = 179.99999999
+
+    elif grid_type == "healpix":
+        try:
+            import healpy as hp
+        except ImportError:
+            print('WARNING: You do not have the "healpy" installed, see: https://healpy.readthedocs.io/ on how '
+                  'to install guide. Creating grid with icosahedral instead')
+            return compute_G_cmb(refinement_degree, degree, grid_type="icosahedral")
+
+        # the healpy nside parameter must be a power of 2
+        nside = 2 ** refinement_degree
+        m = np.arange(hp.nside2npix(nside))
+        theta, phi = hp.pixelfunc.pix2ang(nside, m, nest=False, lonlat=False)
+
+        # convert to degrees
+        theta_grid = theta * 180 / np.pi
+        phi_grid = phi * 180 / np.pi
+
+    elif grid_type == "uniform":
+        # # computes a uniform grid
+        theta = np.arange(180 - refinement_degree / 2, 0, - refinement_degree)
+        phi = np.arange(-180 + refinement_degree / 2, 180 - refinement_degree / 2, refinement_degree)
+        theta_grid, phi_grid = np.meshgrid(theta, phi)
+
+        theta_grid = np.reshape(theta_grid, np.size(theta_grid), 1)
+        phi_grid = np.reshape(phi_grid, np.size(phi_grid), 1)
+
+    else:
+        print('This grid type is not available, please choose either: "icosahedral" or "uniform" or "healpix":')
+
+    print(len(theta_grid))
     # comutes design matrix at core mantle boundary (cmb), based on grid.
     [Gr_cmb, Gt_cmb, Gp_cmb] = gmt.design_SHA(r_core / r_surface * np.ones(len(theta_grid)),
                                               theta_grid, phi_grid, degree)
+    print(np.shape(Gr_cmb))
     return Gr_cmb, Gt_cmb, Gp_cmb
 
 
@@ -597,7 +654,7 @@ def L_curve_corner(rho, eta, alpha):
     eta     - regularisation term/function
     alpha   - regularisation parameter
 
-    :return scorner_alpha, corner_index, kappa
+    :return corner_alpha, corner_index, kappa
     '''
 
     # L-curve is defined in log-log space
@@ -636,7 +693,7 @@ def L_curve_corner(rho, eta, alpha):
     return corner_alpha, corner_index, kappa
 
 
-# -------------------------------------------------- TIME DEPENDENCY -------------------------------------------------
+#%% -------------------------------------------------- TIME DEPENDENCY -------------------------------------------------
 
 def matern_kernel(tp, tq, params):
     '''
@@ -1007,7 +1064,7 @@ def design_time_grid(data_paths, year_list, epochs, degree, grid, truncation=Non
     return Gs
 
 
-# --------------------------------------------------- PLOTTING TOOLS -------------------------------------------------
+#%% --------------------------------------------------- PLOTTING TOOLS -------------------------------------------------
 def global_field_plot(model, model_name='not-specified', radius=6371.2, save=False, vmin=-1e6, vmax=1e6, component='r',
                       step=.25, projection_type='hammer', cmap='PuOr_r', lat0=0, lon0=0, polar_plots=True):
     '''
@@ -1091,6 +1148,8 @@ def global_field_plot(model, model_name='not-specified', radius=6371.2, save=Fal
     if save:
         string = ('global_field_' + model_name + '.png')
         plt.savefig(string)
+        string = ('magnetic_field_map_' + component + '.txt')
+        np.savetxt(string, B_i)
 
     plt.show()
 
@@ -1299,22 +1358,24 @@ def errors_plot(residuals, choice=[True, False], latitude=False, convert=True, s
 
 
     if choice[1]:
-        plt.figure()
-        plt.plot(residuals, theta, 'b.')
-        plt.title('Residuals vs. co-latitude', fontsize=14, fontweight='bold')
-        plt.xlabel('Residuals, [nT]', fontsize=14)
-        plt.ylabel('Co-latitude, [degrees]', fontsize=14)
-        plt.grid(True)
+        for i in range(3):
+            plt.figure()
+            plt.plot(residuals[i * len(theta):i * len(theta) + len(theta)], theta, 'b.')
+            plt.title('Residuals vs. co-latitude', fontsize=14, fontweight='bold')
+            plt.xlabel('Residuals, [nT]', fontsize=14)
+            plt.ylabel('Co-latitude, [degrees]', fontsize=14)
+            plt.grid(True)
 
-        if savefig:
-            plt.savefig('Erros_vs_latitude.png')
+            if savefig:
+                string = 'Erros_vs_latitude_' + i + '.png'
+                plt.savefig(string)
 
         plt.show()
 
     return
 
 
-def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True):
+def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True, savefig=False):
     '''
     Plots the L curve, and places a red dot on the chosen alpha as default
 
@@ -1324,6 +1385,7 @@ def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True):
     alpha_index      - the index of the alpha corresponding to a set of [misfit, model_norm]-coordinates.
     point            - set to False if the coordinate-point, corresponding to the chosen alpha should not be plotted.
 
+    :param savefig:
     :return: plot
     '''
 
@@ -1331,7 +1393,7 @@ def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True):
     ax.plot(misfit_list, model_norm_list, 'b.', label='L-curve')
 
     if point:
-        ax.plot(misfit_list[alpha_index], model_norm_list[alpha_index], 'ro', label='alpha^2')
+        ax.plot(misfit_list[alpha_index], model_norm_list[alpha_index], 'ro', label=r'$\alpha^2$')
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel('Misfit 2-norm, log-scale')
@@ -1342,6 +1404,10 @@ def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True):
 
     ax.set_title('L-curve', fontsize=14, fontweight='bold')
     plt.legend()
+    if savefig:
+        string = 'L_curve' + '.png'
+        plt.savefig(string)
+
     plt.show()
 
     return
@@ -1399,7 +1465,7 @@ def power_spectrum(model, ratio, degree, plot=True):
 
     return wn
 
-# -------------------------------------------------- ADDITIONAL TOOLS ------------------------------------------------
+#%% -------------------------------------------------- ADDITIONAL TOOLS ------------------------------------------------
 
 def matprint(mat, fmt="g"):
     '''
@@ -1413,60 +1479,3 @@ def matprint(mat, fmt="g"):
         for i, y in enumerate(x):
             print(("{:"+str(col_maxes[i])+fmt+"}").format(y), end="  ")
         print("")
-
-
-# ------------------------------------------------------ OUTDATED ----------------------------------------------------
-# TODO skal slettes da jeg ikke fik regularising til at virke:
-def design_time_grid_cmb(grid, reference_times, time_scale, degree, stepsize=5):
-    ''' This function loads data, and creates a list of design matrices, based on a full data set.
-
-    Inputs:
-    data_paths          =  list of paths to data
-    year_list           =  list years in question
-    epochs              =  value for given epochs
-    degree              =  spherical harmonic degree
-    grid                =  the number of times that the design matrix should be repeated.
-    truncation          =  mainly for testing, enables truncating the data input
-
-    output: Grs, tps, Brs, indices
-    '''
-
-    # HYPER-PARAMETERS
-    r_surface = 6371.2  # earths mean radius, often called a
-    r_core = 3480.
-
-    # Computes Gr based on r, theta, phi grid. Only r-component is considered, hence runtime-errors from phi component
-    # division by zero are ignored.
-    A_cmb = []
-    tps = []
-
-    # computes a regular grid
-    theta_cmb = np.arange(180 - stepsize / 2, 0, - stepsize)
-    phi_cmb = np.arange(-180 + stepsize / 2, 180 - stepsize / 2, stepsize)
-    theta_cmb_grid, phi_cmb_grid = np.meshgrid(theta_cmb, phi_cmb)
-
-    theta_cmb_grid = np.reshape(theta_cmb_grid, np.size(theta_cmb_grid), 1)
-    phi_cmb_grid = np.reshape(phi_cmb_grid, np.size(phi_cmb_grid), 1)
-    length = len(theta_cmb_grid)
-
-    print(np.shape(theta_cmb_grid))
-
-    # comutes design matrix at core mantle boundary (cmb), based on grid.
-    [Gr_cmb, Gt_cmb, Gp_cmb] = gmt.design_SHA(r_core / r_surface * np.ones(length),
-                                              theta_cmb_grid, phi_cmb_grid, degree)
-    # print(np.shape(Gr_cmb))
-    # print(np.shape(reference_times))
-    # print(np.shape(grid))
-    # A_cmb = np.empty([0, np.size(Gr_cmb, axis=1) * len(reference_times)])
-    # for t in grid:
-    #     print(t)
-    #     tmp_cmb = design_SHA_GP(Gi_t=Gr_cmb, prediction_times=[t], reference_times=reference_times, tau=time_scale,
-    #                             degree=degree)
-    #
-    #     # print(np.shape(tmp_cmb))
-    #     # A_cmb.append(tmp_cmb)
-    #     A_cmb = np.vstack((A_cmb, tmp_cmb))
-    # print(np.shape(A_cmb))
-    tmp_cmb = design_SHA_GP(Gi_t=Gr_cmb, prediction_times=[t], reference_times=reference_times, tau=time_scale,
-                                degree=degree)
-    return A_cmb

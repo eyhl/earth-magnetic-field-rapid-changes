@@ -50,7 +50,7 @@ def get_Pnm(nmax, theta):
 
     return Pnm
 
-
+from decimal import *
 def design_SHA(r, theta, phi, nmax):
     """
     Created on Fri Feb  2 09:18:42 2018

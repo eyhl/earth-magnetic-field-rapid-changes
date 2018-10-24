@@ -51,7 +51,7 @@ for path in paths:
 
 # PRE-MODELLING
 # compute design matrix at core mantle boundary
-[Gr_cmb, Gt_cmb, Gp_cmb] = ft.compute_G_cmb(refinement_degree=4, degree=degree)
+[Gr_cmb, Gt_cmb, Gp_cmb] = ft.compute_G_cmb(refinement_degree=4, degree=degree, grid_type='uniform')
 
 # compute design matrix
 [Gr, Gt, Gp] = gmt.design_SHA(r / r_surface, theta, phi, degree)
