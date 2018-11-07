@@ -417,19 +417,18 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
     :param errors:
     :return: model_list, residuals_list, misfit_list, model_norm_list, gamma_list
     '''
-    # for normalisation of model and misfit norm
-    N = len(Bi)
-
-
     gamma_list = []
     model_list = []
     residuals_list = []
     misfit_list = []
+    misfit_norm_list = []
     model_norm_list = []
 
+    number_of_data = Bi.size
+
     # figure out what which dimension of L that is not the "number of model coefficients"
-    size_array = np.array([np.size(L, 0), np.size(L, 1)])  # array with number of rows and columns in L
-    correct_size = int(size_array[np.argwhere(size_array != degree*(degree + 2))])  # size != number of coefficients
+    # size_array = np.array([np.size(L, 0), np.size(L, 1)])  # array with number of rows and columns in L
+    # correct_size = int(size_array[np.argwhere(size_array != degree*(degree + 2))])  # size != number of coefficients
 
     # if available define the error estimates as the inverse error covariance matrix, and the simple left hand and right
     # hand side of the least squares problem are defined.
@@ -453,17 +452,21 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
         # initialise L1-regularised model in order to compute convergence condition in 1st while-loop:
         [model_previous, dummy, dummy, dummy] = global_field_model(Bi=Bi, Gi=Gi, L=L, degree=degree, errors=None,
                                                                    regularise='L1', alpha=alpha, gamma=gamma)
-        # set convergence arbitrarily higher than 0.001
-        convergence = 1
+
+        # initial while loop condition: a number higher than convergence limit
+        convergence = convergence_limit + 1
 
         # counter for print option
         i = 0
+
+        # counter for breaking loop:
+        j = 0
         while convergence > convergence_limit:
             # the model norm defined as Lm = abs(gamma), the absolute value is computed later
             gamma = L.dot(model_previous)
 
             # defining the weight matrix for L1
-            wm = np.ones(correct_size) * 1 / np.sqrt(gamma ** 2 + eps ** 2)
+            wm = 1 / np.sqrt(gamma ** 2 + eps ** 2)
 
             # add the regularising term to the left hand side
             lhs = lhs + alpha**2 * L.T.dot(np.diag(wm)).dot(L)
@@ -477,6 +480,7 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
 
             # prints every tenth or every single iteration
             i += 1
+            j += 1
             if printall:
                 print('convergence', convergence)
             elif printall == 'n':
@@ -484,23 +488,31 @@ def L1_norm(Bi, Gi, L, degree, alpha_list, errors=None, gamma=1, eps=1e-4, conve
             elif i % 10 == 1:
                 print('convergence', convergence)
 
-            if i > 150:
+            if j > 300:
                 print('Warning model not converging at alpha={}: change input or convergence limit'.format(alpha))
-                break
+                stop = input("Do you want to: \n 1. Stop \n 2. Continue another 300 steps")
+                if int(stop) == 2:
+                    # restart counter
+                    j = 0
+                    continue
+                else:
+                    return None
 
         # computes model norm, residuals and misfit for evaluation purposes
-        model_norm = 1/N * np.sum(np.abs(gamma))
+        model_norm = (L.dot(model_current)).T.dot(np.diag(wm)).dot(L.dot(model_current))
         residuals = (Bi - Gi.dot(model_current))
-        misfit = 1/N * np.sqrt(residuals.T.dot(We.dot(residuals)))
+        misfit_norm = residuals.T.dot(We.dot(residuals)) * 1/number_of_data
+        misfit = np.sqrt(residuals.T.dot(We.dot(residuals)))
 
         # list for finding the best model wrt given alpha
         gamma_list.append(gamma)
         model_list.append(model_current)
         residuals_list.append(residuals)
+        misfit_norm_list.append(misfit_norm)
         misfit_list.append(misfit)
         model_norm_list.append(model_norm)
 
-    return model_list, residuals_list, misfit_list, model_norm_list, gamma_list
+    return model_list, residuals_list, misfit_norm_list, model_norm_list, gamma_list, misfit_list
 
 
 def L2_norm(Bi, Gi, L, alpha_list, errors=None):
@@ -632,15 +644,13 @@ def compute_G_cmb(refinement_degree, degree, grid_type="icosahedral"):
     else:
         print('This grid type is not available, please choose either: "icosahedral" or "uniform" or "healpix":')
 
-    print(len(theta_grid))
     # comutes design matrix at core mantle boundary (cmb), based on grid.
     [Gr_cmb, Gt_cmb, Gp_cmb] = gmt.design_SHA(r_core / r_surface * np.ones(len(theta_grid)),
                                               theta_grid, phi_grid, degree)
-    print(np.shape(Gr_cmb))
     return Gr_cmb, Gt_cmb, Gp_cmb
 
 
-def L_curve_corner(rho, eta, alpha):
+def L_curve_corner(rho, eta, alpha, truncate=False):
     '''
     Parameter Estimation and Inverse Problems, 2nd edition, 2011
     originally for Matlab by R. Aster, B. Borchers, C. Thurber
@@ -654,12 +664,13 @@ def L_curve_corner(rho, eta, alpha):
     eta     - regularisation term/function
     alpha   - regularisation parameter
 
+    :param truncate:
     :return corner_alpha, corner_index, kappa
     '''
 
     # L-curve is defined in log-log space
-    x = np.log(rho)
-    y = np.log(eta)
+    x = np.log10(rho)
+    y = np.log10(eta)
 
     # if a input is list, it still works
     alpha = np.array(alpha)
@@ -679,7 +690,7 @@ def L_curve_corner(rho, eta, alpha):
     b = np.sqrt((x1 - x3)**2 + (y1 - y3)**2)
     c = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
-    s = (a + b + c) / 2  # semi - perimeter
+    s = np.copy((a + b + c) / 2)  # semi - perimeter
 
     # the radius of the circle
     R = (a * b * c) / (4 * np.sqrt(s * (s - a) * (s - b) * (s - c)))
@@ -687,9 +698,11 @@ def L_curve_corner(rho, eta, alpha):
     # the reciprocal of the radius yields the curvature for each estimate for each value
     kappa = np.pad(1 / R, (1, 1), 'constant')  # zero-padded: end-points has no curvature
 
+    if truncate:
+        kappa = np.copy(kappa[truncate::])
+
     corner_index = np.argmax(kappa)
     corner_alpha = alpha[corner_index]  # the optimum alpha as found in the L curve corner
-
     return corner_alpha, corner_index, kappa
 
 
@@ -1375,7 +1388,7 @@ def errors_plot(residuals, choice=[True, False], latitude=False, convert=True, s
     return
 
 
-def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True, savefig=False):
+def L_curve_plot(misfit_norm_list, model_norm_list, alpha_index, truncate=False, number_of_data=None, point=True, savefig=False):
     '''
     Plots the L curve, and places a red dot on the chosen alpha as default
 
@@ -1385,17 +1398,25 @@ def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True, savefig=
     alpha_index      - the index of the alpha corresponding to a set of [misfit, model_norm]-coordinates.
     point            - set to False if the coordinate-point, corresponding to the chosen alpha should not be plotted.
 
+    :param number_of_data:
     :param savefig:
     :return: plot
     '''
 
     fig, ax = plt.subplots()
-    ax.plot(misfit_list, model_norm_list, 'b.', label='L-curve')
+    ax.plot(misfit_norm_list, model_norm_list, 'b.', label='L-curve')
+    if truncate:
+        ax.plot(misfit_norm_list[truncate::], model_norm_list[truncate::], 'g.', label='L-curve, truncated')
+        misfit_norm_list = misfit_norm_list[truncate::]
+        model_norm_list = model_norm_list[truncate::]
 
     if point:
-        ax.plot(misfit_list[alpha_index], model_norm_list[alpha_index], 'ro', label=r'$\alpha^2$')
-    ax.set_xscale("log")
-    ax.set_yscale("log")
+        ax.plot(misfit_norm_list[alpha_index], model_norm_list[alpha_index], 'ro', label=r'$\alpha^2$')
+    if number_of_data:
+        ax.axvline(x=np.log(number_of_data), color='r', linestyle="--")
+
+    ax.set_xscale("log", basex=10)
+    ax.set_yscale("log", basey=10)
     ax.set_xlabel('Misfit 2-norm, log-scale')
     ax.set_ylabel('Model norm, log-scale')
     #
@@ -1413,12 +1434,13 @@ def L_curve_plot(misfit_list, model_norm_list, alpha_index, point=True, savefig=
     return
 
 
-def power_spectrum(model, ratio, degree, plot=True):
+def power_spectrum(model, ratio, degree, plot=True, savefig=False):
     '''
     Computes the Mauersberger-Lowes power spectrum, based on model parameters
     model   = array or list of model coefficients
     ratio   = ratio given like a/r, where a is the reference radius and r the radius of interest.
     degree  = maximum degree of the model.
+    :param savefig:
     :return: wn, a vector of power sepctrum values at different degrees
     '''
     # initialisation
@@ -1457,11 +1479,15 @@ def power_spectrum(model, ratio, degree, plot=True):
         plt.title('Mauersberger-Lowes Power Spectrum', fontsize=22, fontweight='bold')
         plt.xlabel(r'$\bf{Spherical\ Harmonic\ Degree,\ \it{n}}$', fontsize=18, fontweight='bold')
         plt.ylabel(r'$\bf{R_n}$' + r'$,\ [(nT)^2]$', fontsize=18, fontweight='bold')
-        ax.set_xticks(range(0, 21))
+        ax.set_xticks(range(0, degree + 1))
         ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
         ax.tick_params(axis='both', labelsize=18)
         plt.grid()
         plt.show()
+
+    if savefig:
+        string = 'power_spectrum' + '.png'
+        plt.savefig(string)
 
     return wn
 

@@ -45,7 +45,7 @@ residuals = Br - synthetic_data
 
 
 # -------------------------------------------------- PLOTTING -------------------------------------------------------
-ft.power_spectrum(model_final, r_surface/r_core, degree)
+ft.power_spectrum(model_final, r_surface / r_core, degree)
 ft.errors_plot(residuals=residuals)
 ft.errors_plot(residuals=residuals, choice=[False, True], latitude=theta)
 ft.global_field_plot(model_final, model_name="Core field", radius=r_core, save='n', vmin=-1e6, vmax=1e6, cmap='PuOr_r')
